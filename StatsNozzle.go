@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -37,11 +38,12 @@ var (
 	tokenRefreshIntervalStr = os.Getenv("TOKEN_REFRESH_INTERVAL")
 	apiClient               = cfclient.Client{}
 	tokenRefreshInterval    int64
-	origins                 = make(map[string]int)
 	eventTypes              = make(map[string]int)
+	origins                 = make(map[string]int)
 	jobs                    = make(map[string]int)
 	deployments             = make(map[string]int)
 	ips                     = make(map[string]int)
+	lock                    = sync.RWMutex{}
 )
 
 func environmentComplete() bool {
@@ -128,11 +130,11 @@ func main() {
 
 	go func() {
 		for i := 0; i < 99999; i++ {
+			lock.Lock()
 			fmt.Print("\n\nEventTypes\n")
 			for eventType := range eventTypes {
 				fmt.Printf("  %s : %d\n", eventType, eventTypes[eventType])
 			}
-
 			fmt.Print("\nOrigins\n")
 			for origin := range origins {
 				fmt.Printf("  %s : %d\n", origin, origins[origin])
@@ -153,17 +155,19 @@ func main() {
 				fmt.Printf("  %s : %d\n", ip, ips[ip])
 			}
 
+			lock.Unlock()
 			time.Sleep(5 * time.Second)
 		}
 	}()
 
 	for msg := range firehoseChan {
+		lock.Lock()
 		//log.Printf("EventType:%s Origin:%s Job:%s Deplymnt:%s Idx:%s IP:%s", msg.GetEventType(), msg.GetOrigin(), msg.GetJob(), msg.GetDeployment(), msg.GetIndex(), msg.GetIp())
-
 		eventTypes[msg.GetEventType().String()] = eventTypes[msg.GetEventType().String()] + 1
 		origins[msg.GetOrigin()] = origins[msg.GetOrigin()] + 1
 		jobs[msg.GetJob()] = jobs[msg.GetJob()] + 1
 		deployments[msg.GetDeployment()] = deployments[msg.GetDeployment()] + 1
 		ips[msg.GetIp()] = ips[msg.GetIp()] + 1
+		lock.Unlock()
 	}
 }
