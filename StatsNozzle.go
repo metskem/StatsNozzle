@@ -43,7 +43,9 @@ var (
 	jobs                    = make(map[string]int)
 	deployments             = make(map[string]int)
 	ips                     = make(map[string]int)
+	apps                    = make(map[string]int)
 	lock                    = sync.RWMutex{}
+	appinfoCache            = make(map[string]AppSpaceOrg)
 )
 
 func environmentComplete() bool {
@@ -101,6 +103,28 @@ func getCFClient() *cfclient.Client {
 	return client
 }
 
+/*
+  given an appguid, find out what the appname, spacename and orgname is
+*/
+func getAppInfoForGuid(appguid string) (AppSpaceOrg, error) {
+	appInfo, ok := appinfoCache[appguid]
+	if ok {
+		return appInfo, nil
+	}
+	cfApp, err := apiClient.GetAppByGuidNoInlineCall(appguid)
+	if err != nil {
+		handleError(err, 0)
+		return AppSpaceOrg{}, err
+	}
+	appName := cfApp.Name
+	spaceName := cfApp.SpaceData.Entity.Name
+	spaceGuid := cfApp.SpaceData.Entity.Guid
+	orgName := cfApp.SpaceData.Entity.OrgData.Entity.Name
+	orgGuid := cfApp.SpaceData.Entity.OrgData.Entity.Guid
+	appinfoCache[appguid] = AppSpaceOrg{appName, appguid, spaceName, spaceGuid, orgName, orgGuid}
+	return appinfoCache[appguid], nil
+}
+
 func main() {
 	if !environmentComplete() {
 		os.Exit(8)
@@ -132,27 +156,43 @@ func main() {
 		for i := 0; i < 99999; i++ {
 			lock.Lock()
 			fmt.Print("\n\nEventTypes\n")
-			for eventType := range eventTypes {
-				fmt.Printf("  %s : %d\n", eventType, eventTypes[eventType])
+			vs := NewValSorter(eventTypes)
+			vs.Sort()
+			for eventType := range vs.Keys {
+				fmt.Printf("  %s : %d\n", vs.Keys[eventType], vs.Vals[eventType])
 			}
 			fmt.Print("\nOrigins\n")
-			for origin := range origins {
-				fmt.Printf("  %s : %d\n", origin, origins[origin])
+			vs = NewValSorter(origins)
+			vs.Sort()
+			for origin := range vs.Keys {
+				fmt.Printf("  %s : %d\n", vs.Keys[origin], vs.Vals[origin])
 			}
 
 			fmt.Print("\nJobs\n")
-			for job := range jobs {
-				fmt.Printf("  %s : %d\n", job, jobs[job])
+			vs = NewValSorter(jobs)
+			vs.Sort()
+			for job := range vs.Keys {
+				fmt.Printf("  %s : %d\n", vs.Keys[job], vs.Vals[job])
 			}
 
 			fmt.Print("\nDeployments\n")
-			for deployment := range deployments {
-				fmt.Printf("  %s : %d\n", deployment, deployments[deployment])
+			vs = NewValSorter(deployments)
+			vs.Sort()
+			for deployment := range vs.Keys {
+				fmt.Printf("  %s : %d\n", vs.Keys[deployment], vs.Vals[deployment])
+			}
+			fmt.Print("\nIPs\n")
+			vs = NewValSorter(ips)
+			vs.Sort()
+			for ip := range vs.Keys {
+				fmt.Printf("  %s : %d\n", vs.Keys[ip], vs.Vals[ip])
 			}
 
-			fmt.Print("\nIPs\n")
-			for ip := range ips {
-				fmt.Printf("  %s : %d\n", ip, ips[ip])
+			fmt.Print("\nApps\n")
+			vs = NewValSorter(apps)
+			vs.Sort()
+			for app := range vs.Keys {
+				fmt.Printf("  %s : %d\n", vs.Keys[app], vs.Vals[app])
 			}
 
 			lock.Unlock()
@@ -160,8 +200,23 @@ func main() {
 		}
 	}()
 
+	var appId string
+
 	for msg := range firehoseChan {
 		lock.Lock()
+
+		logMessage := msg.GetLogMessage()
+		if logMessage != nil {
+			appId = logMessage.GetAppId()
+			appSpaceOrg, err := getAppInfoForGuid(appId)
+			if err != nil {
+				fmt.Print(err)
+			} else {
+				key := appSpaceOrg.orgName + "/" + appSpaceOrg.spaceName + "/" + appSpaceOrg.appName
+				apps[key] = apps[key] + 1
+			}
+		}
+
 		//log.Printf("EventType:%s Origin:%s Job:%s Deplymnt:%s Idx:%s IP:%s", msg.GetEventType(), msg.GetOrigin(), msg.GetJob(), msg.GetDeployment(), msg.GetIndex(), msg.GetIp())
 		eventTypes[msg.GetEventType().String()] = eventTypes[msg.GetEventType().String()] + 1
 		origins[msg.GetOrigin()] = origins[msg.GetOrigin()] + 1
