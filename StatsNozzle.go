@@ -44,6 +44,7 @@ var (
 	deployments             = make(map[string]int)
 	ips                     = make(map[string]int)
 	apps                    = make(map[string]int)
+	custom                  int
 	lock                    = sync.RWMutex{}
 	appinfoCache            = make(map[string]AppSpaceOrg)
 )
@@ -91,9 +92,9 @@ func getCFClient() *cfclient.Client {
 	go func() {
 		channel := time.Tick(time.Duration(tokenRefreshInterval) * time.Minute)
 		for range channel {
-			client, err := cfclient.NewClient(c)
+			client, err = cfclient.NewClient(c)
 			if err != nil {
-				panic(err.Error())
+				log.Printf("failed to refresh cfclient, error is %s", err)
 			}
 			log.Print("refreshed cfclient, got new token")
 			apiClient = *client
@@ -125,11 +126,61 @@ func getAppInfoForGuid(appguid string) (AppSpaceOrg, error) {
 	return appinfoCache[appguid], nil
 }
 
+func printStats() {
+	lock.Lock()
+	defer lock.Unlock()
+	fmt.Print("\n=================================================================================================\nEventTypes\n")
+	vs := NewValSorter(eventTypes)
+	vs.Sort()
+	for eventType := range vs.Keys {
+		fmt.Printf("  %s : %d\n", vs.Keys[eventType], vs.Vals[eventType])
+	}
+	fmt.Print("\nOrigins\n")
+	vs = NewValSorter(origins)
+	vs.Sort()
+	for origin := range vs.Keys {
+		fmt.Printf("  %s : %d\n", vs.Keys[origin], vs.Vals[origin])
+	}
+
+	fmt.Print("\nJobs\n")
+	vs = NewValSorter(jobs)
+	vs.Sort()
+	for job := range vs.Keys {
+		fmt.Printf("  %s : %d\n", vs.Keys[job], vs.Vals[job])
+	}
+
+	fmt.Print("\nDeployments\n")
+	vs = NewValSorter(deployments)
+	vs.Sort()
+	for deployment := range vs.Keys {
+		fmt.Printf("  %s : %d\n", vs.Keys[deployment], vs.Vals[deployment])
+	}
+	fmt.Print("\nIPs\n")
+	vs = NewValSorter(ips)
+	vs.Sort()
+	for ip := range vs.Keys {
+		fmt.Printf("  %s : %d\n", vs.Keys[ip], vs.Vals[ip])
+	}
+
+	//fmt.Print("\nApps\n")
+	//vs = NewValSorter(apps)
+	//vs.Sort()
+	//for app := range vs.Keys {
+	//	fmt.Printf("  %s : %d\n", vs.Keys[app], vs.Vals[app])
+	//}
+
+	fmt.Printf("\nCustom Value: %d \n", custom)
+}
+
 func main() {
 	if !environmentComplete() {
 		os.Exit(8)
 	}
 
+	log.SetPrefix("")
+	logErr := log.New(os.Stderr, "", 0)
+	logErr.SetOutput(os.Stderr)
+	logErr.SetPrefix("")
 	// login to cf and get a client handle
 	apiClient = *getCFClient()
 	//
@@ -154,48 +205,7 @@ func main() {
 
 	go func() {
 		for i := 0; i < 99999; i++ {
-			lock.Lock()
-			fmt.Print("\n\nEventTypes\n")
-			vs := NewValSorter(eventTypes)
-			vs.Sort()
-			for eventType := range vs.Keys {
-				fmt.Printf("  %s : %d\n", vs.Keys[eventType], vs.Vals[eventType])
-			}
-			fmt.Print("\nOrigins\n")
-			vs = NewValSorter(origins)
-			vs.Sort()
-			for origin := range vs.Keys {
-				fmt.Printf("  %s : %d\n", vs.Keys[origin], vs.Vals[origin])
-			}
-
-			fmt.Print("\nJobs\n")
-			vs = NewValSorter(jobs)
-			vs.Sort()
-			for job := range vs.Keys {
-				fmt.Printf("  %s : %d\n", vs.Keys[job], vs.Vals[job])
-			}
-
-			fmt.Print("\nDeployments\n")
-			vs = NewValSorter(deployments)
-			vs.Sort()
-			for deployment := range vs.Keys {
-				fmt.Printf("  %s : %d\n", vs.Keys[deployment], vs.Vals[deployment])
-			}
-			fmt.Print("\nIPs\n")
-			vs = NewValSorter(ips)
-			vs.Sort()
-			for ip := range vs.Keys {
-				fmt.Printf("  %s : %d\n", vs.Keys[ip], vs.Vals[ip])
-			}
-
-			fmt.Print("\nApps\n")
-			vs = NewValSorter(apps)
-			vs.Sort()
-			for app := range vs.Keys {
-				fmt.Printf("  %s : %d\n", vs.Keys[app], vs.Vals[app])
-			}
-
-			lock.Unlock()
+			printStats()
 			time.Sleep(5 * time.Second)
 		}
 	}()
